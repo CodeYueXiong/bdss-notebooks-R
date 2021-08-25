@@ -7,7 +7,7 @@ Furthermore, you can find the previous introduction on the project below.
 
 # Workbooks for Big Data and Social Science
 
-**Brian Kim, Christoph Kern, Jonathan Scott Morgan, Clayton Hunter, Avishek Kumar**
+**Brian Kim, Christoph Kern, Jonathan Scott Morgan, Clayton Hunter, Avishek Kumar, Yue Xiong**
 
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Coleridge-Initiative/bdss-notebooks/master)
 
