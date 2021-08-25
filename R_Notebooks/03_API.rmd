@@ -1,0 +1,102 @@
+---
+title: "API Calls with R"
+output: html_document
+author: Yue Xiong^[LMU, yue.xiong@stat.uni-muenchen.de]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Chapter 03 API Calls with R
+
+APIs (application programming interfaces) are hosted on web servers. When you type www.google.com in your browser's address bar, your computer is actually asking the www.google.com server for a webpage, which it then returns to your browser. APIs work much the same way, except instead of your web browser asking for a webpage, your program asks for data. This data is usually returned in JSON format. To retrieve data, we make a request to a webserver. The server then replies with our data. In R, we will use the `httr` and `jsonlite` packages to deal with this.
+
+### R Setup
+
+```{r}
+# install.packages(c("httr", "jsonlite", "tidyverse"))
+library('httr')
+library('jsonlite')
+library('tidyverse')
+```
+
+## Task example: Pull patents for Stanford University
+
+Let's go to the Patents Endpoint (http://www.patentsview.org/api/patent.html) and find the appropriate field for the organization's name.
+
+The variable that we need is called `"assignee_organization"` (organization name, if assignee is organization)
+
+> _Note_: **Assignee**: the name of the entity - company, foundation, partnership, holding company or individual - that owns the patent. In this example we are looking at universities (organization-level).
+
+### Step 1. Build the URL query 
+
+Let's build our first URL query by combining the base url with one criterion (name of the `assignee_organization`)
+
+base url: `http://www.patentsview.org/api/patents/query?q=` + criterion: `{"assignee_organization":stanford university"}`
+
+```{r}
+# save the URL as a variable
+indicator = "covid"
+type = "daily"
+country = "Germany"
+region = "all"
+daterange = "20210501-20210516"
+
+path = paste0("https://covidmap.umd.edu/api/resources?indicator=", indicator, 
+                  "&type=", type, "&country=", country, "&daterange=", daterange)
+```
+
+### Step 2. Get the response
+
+Now let's get the response using the URL defined above, using the `httr` library.
+
+```{r}
+request = GET(url = path)
+```
+
+### Step 3. Check the Response Code
+
+Before you can do anything with a website or URL in Python, it’s a good idea to check the current status code of said portal.
+
+The following are the response codes for the PatentsView API:
+
+`200` - the query parameters are all valid; the results will be in the body of the response
+
+`400` - the query parameters are not valid, typically either because they are not in valid JSON format, or a specified field or value is not valid; the “status reason” in the header will contain the error message
+
+`500` -  there is an internal error with the processing of the query; the “status reason” in the header will contain the error message
+
+Now, let us check the status of our response.
+
+```{r}
+request$status_code  # should be 200, why 400 with the original url
+```
+The status code is 200, which suggests valid query parameters. The results can be shown normally.
+
+In the next steps, we are ready to get the content from the corresponding url,
+
+### Step 4. Get the Content
+After a web server returns a response, you can collect the content you need by converting it into a JSON format.
+
+JSON is a way to encode data structures like lists and dictionaries to strings that ensures that they are easily readable by machines. JSON is the primary format in which data is passed back and forth to APIs, and most API servers will send their responses in JSON format using the `jsonlite` package.
+
+```{r}
+response = content(request, as = "text", encoding = "UTF-8")
+head(response) # view json
+```
+
+### Step 5. Convert JSON to a normal R dataframe
+
+```{r}
+df_survey <- fromJSON(response, flatten = TRUE) %>% data.frame()
+head(df_survey, n = 10)  # check the dataframe
+```
+
+Descriptive stats based on the retrieved data.
+
+```{r}
+summary(df_survey)
+```
+
+I will stop here as I am not sure whether I should be doing the checkpoint 1 and etc as the original url is invalid. Let's talk about this in future meetings.

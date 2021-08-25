@@ -1,3 +1,10 @@
+This repository is intended to provide **R code** for the original worksbooks for Big Data and Social Science with only Python code available.
+
+The original repository can be found here:
+[Link to the Original Repo](https://github.com/Coleridge-Initiative/bdss-notebooks)
+
+The previous introduction can be seen below.
+
 # Workbooks for Big Data and Social Science
 
 **Brian Kim, Christoph Kern, Jonathan Scott Morgan, Clayton Hunter, Avishek Kumar**

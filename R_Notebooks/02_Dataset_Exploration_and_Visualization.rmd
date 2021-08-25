@@ -1,0 +1,219 @@
+---
+title: "Dataset Exploration"
+output: html_document
+author: Yue Xiong^[LMU, yue.xiong@stat.uni-muenchen.de]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Chapter 02 Dataset Exploration and Visualization
+
+## Introduction
+
+In an ideal world, we will have all of the data we want with all of the desirable properties (no missing values, no errors, standard formats, and so on). 
+However, that is hardly ever true - and we have to work with using our datasets to answer questions of interest as intelligently as possible. 
+
+In this r markdown file, we will explore our datasets to answer some questions of interest.
+
+### Learning Objectives
+
+This notebook will give you the opportunity to spend some hands-on time with the data. 
+
+This notebook will take you around the different ways you can analyze your data. This involves looking at basic metrics in the larger dataset, taking a random sample, creating derived variables, making sense of the missing values, and so on. 
+
+This will be done using both `dbplyr`, `dplyr`, `RSQLite` packages in R. The `RSQLite` Python package will give you the opportunity to interact with the database using SQL to pull data into R. Some additional manipulations will be handled by the `tbl()` function in R (by converting your datasets into dataframes).
+
+This notebook will provide an introduction and examples for: 
+
+- How to create new tables from the larger tables in database (sometimes called the "analytical frame")
+- How to explore different variables of interest
+- How to explore aggregate metrics
+- How to handle missing values
+- How to join newly created tables
+
+### Methods
+
+We will be using the `RSQLite` R package to access tables in our database.. 
+
+To read the results of our queries, we will be using the `tbl()` function provided by the `dplyr` R package, which has the ability to read tabular data from SQL queries into a pandas DataFrame object. For processing with dataframes, we will use various commands to:
+
+- Create statistical summaries
+- Create subsets of the data
+
+Within SQL, we will use various queries to:
+
+- select data subsets
+- Sum over groups
+- create new tables
+- Count distinct values of desired variables
+- Order data by chosen variables
+
+## R Setup
+
+In R, we first use `install.packages()` to install the required packages and then we use `library()` to load the corresponding package. Among the most famous R packages:
+
+- `dplyr` is a grammar of data manipulation, providing a consistent set of verbs that help you solve the most common data manipulation problems. It works with local dataframes.
+
+- `dbplyr` is similar to `dplyr`, but can deal with remote database tables using exactly the same R code.
+
+- `RSQLite` embeds the 'SQLite' database engine in R and provides an interface compliant with the 'DBI' package.
+
+```{r}
+# install.packages(c("dbplyr", "RSQLite", "DBI"))  # install the required packages
+library('dbplyr')  # load the corresponding libraries
+library('dplyr')
+library('RSQLite')
+```
+
+By prefixing `?`, detailed introduction on the according package will be provided.
+```{r}
+?RSQLite
+```
+
+It is always useful to set the working directory before basic data analyzing.
+```{r}
+setwd("F:/hiwi_work_notebook/bdss-notebooks/R_Notebooks")
+```
+
+## Load the Data
+
+We can execute SQL queries using R to create connections to the corresponding SQL databases.
+
+And the `RSQLite` package, in this case, has made things much easier.
+
+### Establish a Connection to the Database
+
+Firstly, we need to specify the database path and then `DBI::dbConnect()` is utilized to connect to this provided database.
+```{r, include=FALSE, echo=FALSE}
+dir.create("data_raw", showWarnings = FALSE)
+download.file(url = "https://ndownloader.figshare.com/files/2292171",
+              destfile = "data_raw/portal_mammals.sqlite", mode = "wb")
+```
+
+```{r}
+database_path = "./data_raw/portal_mammals.sqlite"
+mammals = DBI::dbConnect(SQLite(), database_path)
+```
+
+Furthermore, the `src_dbi()` function can be used to check the tables stored in this database.
+```{r}
+src_dbi(mammals)
+```
+As it shows, there are three tables in this database, i.e., plots, species, surveys.
+
+### Formulate Data Query
+
+Depending on what data we are interested in, we can use different queries to pull different data. In this example, we will pull all the content of the offenders data.
+
+### Pull Data from the Database
+
+After formulating the queries, we will be accessing the data and use the `tbl()` function to display the results in a table manner.
+
+## Analysis: Using R and SQL
+
+__What are the characteristics of the survey__
+
+Before we go any further, let's take a look at some of the data that we're working with.
+
+__portal-mammals Data__
+
+Just like a spreadsheet with multiple worksheets, a SQLite database can contain multiple tables. In this case three of them are listed in the tbls row in the output above:
+
+- plots
+- species
+- surveys
+
+## Identifying Missing Values
+
+We might be concerned about missing values in our data. Let's take a look at some inmate data to show an example of how we might find them.
+
+```{r}
+query = "select * from surveys limit 20"
+surveys = tbl(mammals, sql(query))
+```
+```{r}
+head(surveys)
+```
+Here, we use the `head()` method to look at the top few rows of the surveys data. As you can see, we have lots of information about the mammals, such as record_id, plot_id, species_id, sex, etc. Let's see all of the types of variables that we have in this table using `colnames()`.
+
+```{r}
+colnames(surveys)
+```
+
+## Identifying Missing Values
+
+We might be concerned about missing values in our data. Let's take a look at some surveys data using `is.na()` to show an example of how we might find them.
+
+```{r}
+is.na(surveys$sex)
+```
+Since the `ncdoc.db` uploaded is empty, in this case similar data queries cannot be used for data exploration.
+
+## Date Variable
+
+Unfortunately, the database I used here does not have the date attribute. I will leave it as it is until we get access to the original `ncdoc.db` database.
+
+For reference, the query example is shown below:
+
+    SELECT *, CAST(strftime("%Y",ACTUAL_SENTENCE_END_DATE) as integer) as release_year
+    FROM sentences
+    WHERE release_year >= 1980 AND release_year < 1990
+
+## Summary Statistics
+
+In this section, we look at aggregate statistics on the data. We'll start by looking at the surveys dataset.
+
+```{r}
+qry = "SELECT year, species_id, plot_id FROM surveys"
+surveys_new = tbl(mammals, sql(qry))
+head(surveys_new)
+```
+In order to get the corresponding dataframe, we can use the `data.frame()` function to change the above `list` to `dataframe.`
+```{r}
+df = data.frame(surveys_new)
+head(df, n=10)
+```
+
+```{r}
+nrow(df)  # nrow() cannot be used with surveys_new: return NA?
+```
+We can get simple descriptive statistics using the `summary()` function.
+```{r}
+summary(df)
+```
+
+Let's find out how many unique inmates there were within the above shown time period.
+
+```{r}
+length(unique(df$species_id))
+```
+It indicates 49 species observed from year 1977 to 2002.
+
+Now, let's look at the characteristics of the mammals by year. First, let's look at how many mammals there were in each year.
+
+```{r}
+ob_by_year = df %>% group_by(df$year)
+ob_by_year
+count(ob_by_year)
+```
+
+Note that we first create an aggregated object using the `group_by()` method. Then, we use it to perform certain calculations on each of the groups. Since we grouped by `year`, we are able to obtain various statistics of other variables within each year. 
+
+Now, let's look at how many unique mammal there are within each year.
+```{r}
+unique(ob_by_year)
+```
+
+And we can plot the graph from it.
+```{r}
+# install.packages('ggplot2')
+library("ggplot2")
+plot_data = count(ob_by_year)
+colnames(plot_data) = c("year", "number")
+plot_data$year
+ggplot(data = plot_data, aes(x = year, y = number)) + geom_line() + ggtitle("Number of mammals observed from 1977 to 2002")
+```
+
+I will stop here as we are lacking information with the `ncdoc.db` database. Further details can be discussed via future meetings.
