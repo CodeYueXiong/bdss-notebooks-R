@@ -3,7 +3,7 @@ This repository is intended to provide **R code** for the original worksbooks fo
 The original repository can be found here:
 [Link to the Original Repo](https://github.com/Coleridge-Initiative/bdss-notebooks)
 
-The previous introduction can be seen below.
+Furthermore, you can find the previous introduction on the project below.
 
 # Workbooks for Big Data and Social Science
 
