@@ -1,6 +1,6 @@
 ---
 title: "API Calls with R"
-output: html_document
+output: pdf_document
 author: Yue Xiong^[LMU, yue.xiong@stat.uni-muenchen.de]
 ---
 

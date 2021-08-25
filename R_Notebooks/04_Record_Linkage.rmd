@@ -1,0 +1,36 @@
+---
+title: "Record Linkage"
+output: pdf_document
+author: Yue Xiong^[LMU, yue.xiong@stat.uni-muenchen.de]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Chapter 04 Record Linkage
+
+Not sure whether we have similar packages in R.
+
+```{r}
+# install.packages("DBI")
+library("RSQLite")
+library("DBI")
+library('dbplyr')
+library('dplyr')
+```
+Now we can create the connection to the corresponding mammals database.
+
+```{r}
+database_path = "F:/hiwi_work_notebook/bdss-notebooks/R_Notebooks/data_raw/portal_mammals.sqlite"
+conn = dbConnect(SQLite(), database_path)
+src_dbi(conn)
+```
+
+Then we can fetch all query results into a normal r dataframe using `dbGetQuery` provided by the `DBI` package.
+```{r}
+mammals_list = dbGetQuery(conn, "select * from surveys")
+mammals_df = data.frame(mammals_list)
+nrow(mammals_df)
+```
+
