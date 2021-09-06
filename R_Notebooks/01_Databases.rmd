@@ -42,22 +42,25 @@ library('DBI')
 ```
 ```{r}
 # connect to the corresponding database
-database_path = "F:/hiwi_work_notebook/bdss-notebooks/awards.db"
-awards <- DBI::dbConnect(RSQLite::SQLite(), database_path)
+database_path = "F:/hiwi_work_notebook/bdss-notebooks/ncdoc.db"
+ncdoc <- DBI::dbConnect(RSQLite::SQLite(), database_path)
 ```
 ```{r}
-src_dbi(awards)
+# src_dbi(ncdoc)  # checking tables in this database
 ```
 
 #### Formulate Data Query
 
-To connect to tables within a database, we can use the `tbl()`function from `dplyr`. Also, this function can be used to send queries the database. Let's
-demonstrate this functionality by looking at the **awards** data.
+To connect to tables within a database, we can insert the sql chunk and specify the connection. Let's
+demonstrate this functionality by looking at the **inmates** data.
 
-```{r}
-tbl(awards, sql("SELECT * FROM awards LIMIT 20"))
+```{sql connection=ncdoc}
+SELECT *
+FROM inmate
+LIMIT 20
 ```
-You should see 20 rows of the `awards` dataset. Let's go over the basics of this SQL command.
+
+You should see 20 rows of the `inmate` dataset. Let's go over the basics of this SQL command.
 
 - **SELECT:** We start out with the `SELECT` statement. The `SELECT` statement specifies which variables (columns) you want. 
     - Here, we used `SELECT *`. The "`*`" just says that we want all the variables. 
@@ -72,7 +75,7 @@ You should see 20 rows of the `awards` dataset. Let's go over the basics of this
 In this case, we've put everything in one line, but that's not necessary. We could have split the code up into multiple lines, like so:
 
     SELECT *
-    FROM awards
+    FROM inmate
     LIMIT 20;
 
 This gives the same output as our original query. Generally, once queries start getting longer, breaking up the code into multiple lines can be very helpful in organizing your code and making it easier to read.
@@ -90,32 +93,47 @@ If you notice, we've been using all caps for SQL commands and all lowercase for 
 
 One of the basic things you might be interested in doing is finding out how many rows there are in the dataset. You can do this using the `COUNT` statement.
 
-Let's find the total number of employees that we have in our `awards` table.
+Let's find the total number of employees that we have in our `sentences` table.
 
-```{r}
-tbl(awards, sql("SELECT COUNT(employee) FROM awards LIMIT 20"))
+```{sql connection=ncdoc}
+SELECT COUNT(*)
+FROM sentences
+LIMIT 20;
 ```
+
+We can also count the number of non-NULL values there are in a given variable by including a column name instead of `*`.
+
+```{sql connection=ncdoc}
+SELECT COUNT(inmate_doc_number)
+FROM sentences
+LIMIT 20;
+```
+
 
 To count the number of unique cases, you can use the `DISTINCT` statement. This checks how many unique values of that variable there are. 
 
-Let's find the total number of unique individuals who were in those employees.
+Let's find the total number of unique individuals who were in those sentences.
 
-```{r}
-tbl(awards, sql("SELECT COUNT(DISTINCT employee) FROM awards LIMIT 20"))
+```{sql connection=ncdoc}
+SELECT COUNT(DISTINCT inmate_doc_number)
+FROM sentences
+LIMIT 20;
 ```
 
-You can also do other basic summaries, such as finding sum using `SUM` or average using `AVG`. For instance,
-```{r}
-tbl(awards, sql("SELECT AVG(employee) FROM awards LIMIT 20"))
-```
+
+You can also do other basic summaries, such as finding sum using `SUM` or average using `AVG`.
 
 #### Conditional Statements
 
 Suppose we want to look at a subset of the data. We can use conditional statements to do this.
 
-```{r}
-tbl(awards, sql("SELECT * FROM awards WHERE employee = '90014540'"))
+```{sql connection=ncdoc}
+SELECT *
+FROM inmate
+WHERE inmate_gender_code = 'MALE'
+LIMIT 10;
 ```
+
 
 The `WHERE` statement is used to return only data that meets certain conditions. Here, we used it to find the information for employee whose id is 90014540.
 
@@ -140,39 +158,52 @@ What if we wanted to get summaries of the data, such as counts, aggregated by a 
 
 - Using `GROUP BY` with single variable
 
-Firstly, let's take a look at the students dataset.
-```{r}
-tbl(awards, sql("SELECT * FROM students LIMIT 50"))
+```{sql connection=ncdoc}
+SELECT inmate_race_code, count(*)
+FROM inmate
+GROUP BY inmate_race_code
+LIMIT 20;
+```
+Here, the `GROUP BY` statement groups it into the categories of the variable. Since we've chosen to display the count, we can see the counts. We can also change the order in which the results are displayed so that it's in increasing order. 
+
+```{sql connection=ncdoc}
+SELECT inmate_race_code, count(*)
+FROM inmate
+GROUP BY inmate_race_code
+ORDER BY count(*)
+LIMIT 20;
 ```
 
-And then we can use the `GROUP BY` statement.
-
-```{r}
-tbl(awards, sql("SELECT employee, count(*) FROM students GROUP BY employee LIMIT 10"))
-```
-We can also add queries like `ORDER BY count(*)` to keep the displayed results in an ascending order.
-```{r}
-tbl(awards, sql("SELECT employee, count(*) FROM students GROUP BY employee ORDER BY count(*) LIMIT 20"))
-```
+The `ORDER BY` statement orders the rows that it displays according to whatever you put after it. In this case, we chose the count. 
 
 - Using `GROUP BY` with Multiple Variables
 
-Suppose we wanted to look at counts by employee(id) and by classification We could do this by adding the classification variable to the `GROUP BY` statement.
+Suppose we wanted to look at counts by race and by gender. We could do this by adding the gender variable to the `GROUP BY` statement.
 
-```{r}
-tbl(awards, sql("SELECT employee, classification, count(*) FROM students GROUP BY employee, classification ORDER BY count(*) DESC LIMIT 20"))
+```{sql connection=ncdoc}
+SELECT inmate_race_code, inmate_gender_code, count(*)
+FROM inmate
+GROUP BY inmate_race_code, inmate_gender_code
+ORDER BY count(*) DESC
+LIMIT 20;
 ```
-Notice that we used `DESC` after `ORDER BY`. This orders in descending order instead of the increasing order, so that we can see the groups with the most people at the top.
+
+This first groups by `inmate_race_code`, then it groups by `inmate_gender_code`, in that order. Further, notice that we used `DESC` after `ORDER BY`. This orders in descending order instead of ascending order, so that we can see the groups with the most people at the top.
 
 #### Conditional Statements After Aggregation
 
 Suppose we wanted to display only certain counts. We can use `HAVING` to do this.
 
-```{r}
-tbl(awards, sql("SELECT employee, classification, count(*) FROM students GROUP BY employee, classification HAVING count(*) >=1 ORDER BY count(*) DESC LIMIT 20"))
+```{sql connection=ncdoc}
+SELECT inmate_race_code, inmate_gender_code, count(*)
+FROM inmate
+GROUP BY inmate_race_code, inmate_gender_code
+HAVING count(*) > 1000
+ORDER BY count(*) DESC
+LIMIT 20;
 ```
 
-This will only display the counts for which the count is greater than 0. Note that this is different from using `WHERE`, since the conditional statement comes after the `GROUP BY` statement. Basically, `HAVING` gives us a way of using the same types of conditional statements after we do our aggregation.
+This will only display the counts for which the count is greater than 1000. Note that this is different from using `WHERE`, since the conditional statement comes after the `GROUP BY` statement. Basically, `HAVING` gives us a way of using the same types of conditional statements after we do our aggregation.
 
 #### Joins
 
@@ -206,35 +237,42 @@ Let's say we want to combine Table A and Table B so that we have one table that 
 |6|9|1|
 
 Table C has each `id` that was in both Table A and Table B. It also contains the appropriate values for `var1` and `var2` corresponding to each `id`. This kind of matching can be quite tricky to figure out manually, since there are different numbers of rows in each table, not all of the `id` values match for the two tables, and there are some `id` values that aren't in both. Fortunately for us, SQL is well-equipped to handle this task using the `JOIN` statement.
-```{r}
-```
 
-
-```{sql connection=awards}
-select * from students LIMIT 20
-```
-```{sql connection=awards}
-SELECT awards.employee, awards.award, students.occupation, students.classification FROM students 
-JOIN awards on students.employee = awards.employee 
-LIMIT 100
+```{sql connection=ncdoc}
+SELECT sentences.inmate_doc_number, inmate.inmate_race_code, sentences.actual_sentence_end_date 
+FROM sentences
+JOIN inmate
+ON sentences.inmate_doc_number = inmate.inmate_doc_number
+LIMIT 1000
 ```
 
 Now that we're connected and have established a plan for how we're joining two tables together, let's take a look at the SQL code that performs this join and break it down.
 
-    SELECT awards.employee, awards.award, students.occupation, students.classification FROM students
-    JOIN awards 
-    on students.employee = awards.employee
-    LIMIT 100
+    SELECT * FROM sentences
+    JOIN inmate
+    ON sentences.inmate_doc_number = inmate.inmate_doc_number
+    LIMIT 1000
 
-Here, we want to `SELECT` each column from a data table that we get from joining the tables `awards` and `students`. 
+Here, we want to `SELECT` each column from a data table that we get from joining the tables `inmate` and `sentences`. The second line takes the `inmate` table and joins the `sentences` table to it. 
 
-We can't just mash two tables together though -- we need some way of making sure that the appropriate rows match. We do this with this line:
+We can't just mash two tables together though -- we need some way of making sure that the appropriate rows match. We do this with the third line:
 
-    ON students.employee = awards.employee
+    ON sentences.inmate_doc_number = inmate.inmate_doc_number
 
 This part specifies what we're joining on. That is, what is the ID variable that is in both tables that we want to match. They don't need to be named the same in both tables, though you do need to specify what they are in each table, even if they are the same, as well as which table they are from.
 
-If you run the full code below, you should see the first 100 rows (because of the `LIMIT 100`) of the joined table. You should be able to scroll through all of the variables and see that we've managed to merge the `awards` and `students` tables together according to their IDs.
+If you run the full code below, you should see the first 1000 rows (because of the `LIMIT 1000`) of the joined table. You should be able to scroll through all of the variables and see that we've managed to merge the `inmate` and `sentences` tables together according to their IDs.
+
+> **Side note:** We're only going to be displaying a few of the columns instead of using `SELECT *` like we showed above. This is because we aren't able to display more than 50 columns here in this notebook format. Joining to get tables with greater than 50 columns is perfectly fine, but we'll only look at a few at a time to make it easier to follow in these exercises.
+
+```{sql connection=ncdoc}
+SELECT sentences.inmate_doc_number, inmate.inmate_race_code, sentences.actual_sentence_end_date 
+FROM sentences
+JOIN inmate
+ON sentences.inmate_doc_number = inmate.inmate_doc_number
+LIMIT 1000
+```
+
 
 #### Different Types of Joins
 
@@ -271,10 +309,12 @@ Here, we've kept every single row in Table A, and simply filled in the informati
 |7|*null*|2|
 |8|*null*|0|
 
-```{sql connection=awards}
-SELECT awards.employee, awards.award, students.occupation, students.classification FROM students 
-LEFT JOIN awards on students.employee = awards.employee 
-LIMIT 100
+```{sql connection=ncdoc}
+SELECT sentences.inmate_doc_number, inmate.inmate_race_code, sentences.actual_sentence_end_date 
+FROM sentences
+LEFT JOIN inmate
+ON sentences.inmate_doc_number = inmate.inmate_doc_number
+LIMIT 1000
 ```
 
 - Outer Join
@@ -294,13 +334,13 @@ An outer join keeps all unique ids, then puts `NULL` if it isn't part of that ta
 
 In a way, it's like combining the `LEFT` and `RIGHT JOIN`s so that we have all information from both tables.
 
-Notice that we aren't able to show the outer join here, as it isn't supported by SQLite. We've provided the code here, but it won't run, so just make sure to keep it in mind for the future.
+Notice that we aren't able to show the outer join here, as it isn't supported by SQLite. We've provided the code here, but it won't be executed, so just make sure to keep it in mind for the future.
 
-    SELECT awards.employee, awards.award, students.occupation, students.classification 
-    FROM students 
-    FULL OUTER JOIN awards 
-    on students.employee = awards.employee 
-    LIMIT 100
+    SELECT sentences.inmate_doc_number, inmate.inmate_race_code, sentences.actual_sentence_end_date 
+    FROM sentences
+    FULL OUTER JOIN inmate
+    ON sentences.inmate_doc_number = inmate.inmate_doc_number
+    LIMIT 1000
 
 #### Creating New Tables for Future Use 
 
@@ -308,23 +348,23 @@ Notice that we aren't able to show the outer join here, as it isn't supported by
 
 So far, we've mostly just been exploring the data without making any changes to the database. However, there might be times when we might want to create new tables. We can do this using `CREATE TABLE`. Let's use a previous example to create a new table.
 
-```{sql connection=awards}
-CREATE TABLE joinedtable1 AS
+```{sql connection=ncdoc}
+CREATE TABLE joinedtable AS
 SELECT * 
-FROM students
-JOIN awards
-ON students.employee = awards.employee
+FROM sentences
+JOIN inmate
+ON sentences.inmate_doc_number = inmate.inmate_doc_number
 ```
 This should look mostly familiar, since everything after the first line is stuff we've already done. The first line creates a new table called `joinedtable` from the output.
 
 This is a bit of a mess, though. We usually don't need everything from the tables that we do join, so we can choose what we keep. Let's create a new table that has just the information we need.
 
-```{sql connection=awards}
+```{sql connection=ncdoc}
 CREATE TABLE joinedtable2 AS
-SELECT awards.employee, awards.award, students.occupation, students.classification 
-FROM students
-JOIN awards
-ON students.employee = awards.employee
+SELECT sentences.inmate_doc_number, inmate.inmate_race_code, sentences.actual_sentence_end_date 
+FROM sentences
+JOIN inmate
+ON sentences.inmate_doc_number = inmate.inmate_doc_number
 ```
 
 Firstly, notice that we use aliasing to help make referring to tables easier. That is, in the third and fourth lines, we put "`a`" and "`b`" after each table to give it that alias. We can then use "`a`" and "`b`" whenever we refer to either table, which makes the `SELECT` statement easier. 
@@ -337,12 +377,12 @@ Finally, we've made the table easier to read by changing the name of the variabl
 
 Conversely, you can also drop, or delete, tables. We created a table in the previous section that we won't need, so let's drop it.
 
-```{sql connection=awards}
-DROP TABLE joinedtable1
+```{sql connection=ncdoc}
+DROP TABLE joinedtable;
 ```
 
-```{sql connection=awards}
-DROP TABLE joinedtable2
+```{sql connection=ncdoc}
+DROP TABLE joinedtable2;
 ```
 
 You might be tempted to avoid dropping tables since it seems relatively harmless to simply not use the table anymore without dropping them. However, it is important to keep databases clean and consider the amount of space each table takes up. 
