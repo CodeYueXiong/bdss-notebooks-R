@@ -1,0 +1,376 @@
+---
+title: "07_2_Machine_Learning_Features"
+output: pdf_document
+author: Yue Xiong, LMU, yue.xiong@stat.uni-muenchen.de
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Machine Learning -- Creating Features
+-----
+
+# Introduction
+
+In this tutorial, we'll discuss how to formulate a policy problem or a social science question in the machine learning framework; how to transform raw data into something that can be fed into a model; how to build, evaluate, compare, and select models; and how to reasonably and accurately interpret model results.
+
+This tutorial is based on chapter "Machine Learning" of [Big Data and Social Science](https://coleridge-initiative.github.io/big-data-and-social-science/).
+
+## Setup
+
+```{r, message=FALSE, warning=FALSE}
+library('dbplyr')  # load the corresponding libraries
+library('dplyr')
+library('RSQLite')
+library('glue')
+```
+
+```{r}
+# Establish a connection to the ncdoc.db database
+database_path = "F:/hiwi_work_notebook/ncdoc.db"
+conn = DBI::dbConnect(SQLite(), database_path)
+```
+
+```{r}
+# Checking the tables saved in this database
+src_dbi(conn)
+```
+
+# Problem Formulation
+---
+  
+Our Machine Learning Problem
+>Of all prisoners released, we would like to predict who is likely to reenter jail within *5* years of the day we make our prediction. For instance, say it is Jan 1, 2009 and we want to identify which 
+>prisoners are likely to re-enter jail between now and end of 2013. We can run our predictive model and identify who is most likely at risk. The is an example of a *binary classification* problem. 
+
+Note the outcome window of 5 years is completely arbitrary. You could use a window of 5, 3, 1 years or 1 day. 
+
+In order to predict recidivism, we will be using data from the `inmate` and `sentences` table to create labels (predictors, or independent variables, or $X$ variables) and features (dependent variables, or $Y$ variables). 
+
+We need to munge our data into **labels** (1_Machine_Learning_Labels.rmd) and **features** (2_Machine_Learning_Features.rmd) before we can train and evaluate **machine learning models** (3_Machine_Learning_Models.rmd).
+
+This notebook assumes that you have already worked through the `1_Machine_Learning_Labels` R markdown notebook. If that is not the case, you can execute the according notebook as specified.
+
+# Feature Generation
+---
+
+Our features for prediction recidivism (between 2009 and 2013) are the following:
+
+- `num_admits`: The number of times someone has been admitted to prison before 2009. The more times someone has been to prison the more times they are likely continue to be arrested. 
+
+- `length_longest_sentence`: The length of the longest sentence of all admits before 2009. Long previous sentences might decrease the likelihood of future arrests.
+
+- `age_first_admit`: The age someone was first admitted to prison. The idea behind creating this feature is that people who are younger when they are first arrested are more likely to be arrested again. 
+
+- `age`: The age at the end of our last exit time range, i.e. in 2008. People who are younger when they are released might be more likely to be arrested again. 
+
+First, we create a new sentence table `sentences_prep` that includes the sentence begin and end dates in date format.
+
+```{r}
+sql_string = "drop table if exists sentences_prep;"
+DBI::dbSendStatement(conn, sql_string)
+```
+
+```{r}
+sql_string ="
+create table sentences_prep as
+select inmate_doc_number, 
+cast(inmate_sentence_component as integer) as sentence_component,
+date([sentence_begin_date_(for_max)]) as sentence_begin_date,
+date(actual_sentence_end_date) as sentence_end_date
+from sentences;
+"
+DBI::dbSendQuery(conn, sql_string)
+```
+
+To create the feature `num_admits`, we count the number of rows (individual sentence periods) for each `inmate_doc_number` before 2009 and write this information into `feature_num_admits_2000_2008`.
+
+```{r}
+sql_string = "drop table if exists feature_num_admits_2000_2008;"
+DBI::dbSendStatement(conn, sql_string)
+```
+
+```{r}
+sql_string ="
+create table feature_num_admits_2000_2008 as
+select inmate_doc_number, count(*) num_admits
+from sentences_prep
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_2009_2013)
+and sentence_begin_date < '2008-12-31' and sentence_component = 1
+group by inmate_doc_number;
+"
+DBI::dbSendQuery(conn, sql_string)
+```
+For `length_longest_sentence`, we first compute the length of all sentences before 2009 and create the table `feature_length_sentence_2000_2008`.
+
+```{r}
+sql_string = "drop table if exists feature_length_sentence_2000_2008;"
+DBI::dbSendStatement(conn, sql_string)
+```
+```{r}
+sql_string ="
+create table feature_length_sentence_2000_2008 as
+select inmate_doc_number, sentence_component, cast(julianday(sentence_end_date) - julianday(sentence_begin_date) as integer) length_sentence
+from sentences_prep
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_2009_2013)
+and sentence_begin_date < '2008-12-31' and sentence_component = 1
+and sentence_begin_date > '0001-01-01' and sentence_end_date > '0001-01-01' and sentence_end_date > sentence_begin_date;
+"
+DBI::dbSendQuery(conn, sql_string)
+```
+
+On this basis, we find the longest sentence period (`max(length_sentence)`) for each `inmate_doc_number`.
+
+```{r}
+sql_string = "drop table if exists feature_length_long_sentence_2000_2008;"
+DBI::dbSendStatement(conn, sql_string)
+```
+```{r}
+sql_string ="
+create temp table feature_length_long_sentence_2000_2008 as
+select inmate_doc_number, max(length_sentence) length_longest_sentence
+from feature_length_sentence_2000_2008
+group by inmate_doc_number;
+"
+DBI::dbSendQuery(conn, sql_string)
+```
+
+There are several steps needed to compute the age at first arrest. First, we find the first arrest (`min(sentence_begin_date)`) for each `inmate_doc_number` and create the table `docnbr_admityr`.
+
+```{r}
+sql_string = "drop table if exists docnbr_admityr;"
+DBI::dbSendStatement(conn, sql_string)
+```
+
+```{r}
+sql_string ="
+create temp table docnbr_admityr as
+select inmate_doc_number, min(sentence_begin_date) min_admityr
+from sentences_prep
+where sentence_begin_date > '0001-01-01'
+group by inmate_doc_number;
+"
+DBI::dbSendQuery(conn, sql_string)
+```
+
+We then join the `inmate` and `docnbr_admityr` tables and extract the years from `inmate_birth_date` (birth year) and `min_admityr` (year first admitted into prison).
+
+```{r}
+sql_string = "drop table if exists age_first_admit_birth_year;"
+DBI::dbSendStatement(conn, sql_string)
+```
+
+```{r}
+# sql_string =paste0("
+# create temp table age_first_admit_birth_year as
+# select da.inmate_doc_number,
+# cast(strftime("%Y", da.min_admityr) as integer) min_admityr,
+# cast(strftime("%Y", p.inmate_birth_date) as integer) inmate_birth_date
+# from docnbr_admityr da
+# left join inmate p on da.inmate_doc_number = p.inmate_doc_number;
+# ")
+# DBI::dbSendQuery(conn, sql_string)
+```
+
+```{sql connection=conn}
+create temp table age_first_admit_birth_year as
+select da.inmate_doc_number,
+cast(strftime("%Y", da.min_admityr) as integer) min_admityr,
+cast(strftime("%Y", p.inmate_birth_date) as integer) inmate_birth_date
+from docnbr_admityr da
+left join inmate p on da.inmate_doc_number = p.inmate_doc_number;
+```
+The combined table allows us to create `age_first_admit` by subtracting the birth year from the year first admitted into prison.
+
+```{r}
+sql_string = "drop table if exists feature_age_first_admit;"
+DBI::dbSendStatement(conn, sql_string)
+```
+
+```{r}
+sql_string = "
+create table feature_age_first_admit as
+select inmate_doc_number, (min_admityr - inmate_birth_date) age_first_admit
+from age_first_admit_birth_year;"
+DBI::dbSendQuery(conn, sql_string)
+```
+
+We then filter the `feature_age_first_admit` table such that it only includes observations that are observed in the label table `recidivism_labels_2009_2013`.
+
+```{r}
+sql_string = "drop table if exists feature_agefirstadmit;"
+DBI::dbSendStatement(conn, sql_string)
+```
+
+```{r}
+sql_string = "
+create table feature_agefirstadmit as
+select inmate_doc_number, age_first_admit
+from feature_age_first_admit
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_2009_2013);"
+DBI::dbSendQuery(conn, sql_string)
+```
+
+To compute the age in 2008, we simply subtract the `inmate_birth_date` from 2008 and store this information in `feature_age_2008`.
+
+```{r}
+sql_string = "drop table if exists feature_age_2008;"
+DBI::dbSendStatement(conn, sql_string)
+```
+```{r}
+# sql_string = "
+# create table feature_age_2008 as
+# select inmate_doc_number, (2008 - cast(strftime("%Y", inmate_birth_date) as integer)) age
+# from inmate
+# where inmate_doc_number in (select inmate_doc_number from recidivism_labels_2009_2013);"
+# DBI::dbSendQuery(conn, sql_string)
+```
+```{sql connection=conn}
+create table feature_age_2008 as
+select inmate_doc_number, (2008 - cast(strftime("%Y", inmate_birth_date) as integer)) age
+from inmate
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_2009_2013);
+```
+
+Finally, we join all (final) feature tables by `inmate_doc_number` and create table `features_2000_2008`.
+
+```{r}
+sql_string = "drop table if exists features_2000_2008;"
+DBI::dbSendStatement(conn, sql_string)
+```
+```{r}
+sql_string = "create table features_2000_2008 as
+select f1.inmate_doc_number, f1.num_admits, f2.length_longest_sentence, f3.age_first_admit, f4.age
+from feature_num_admits_2000_2008 f1
+left join feature_length_long_sentence_2000_2008 f2 on f1.inmate_doc_number = f2.inmate_doc_number
+left join feature_agefirstadmit f3 on f1.inmate_doc_number = f3.inmate_doc_number
+left join feature_age_2008 f4 on f1.inmate_doc_number = f4.inmate_doc_number;"
+DBI::dbSendQuery(conn, sql_string)
+```
+We can now load the feature table and compute descriptive statistics for the features we created.
+```{r}
+sql_string = "SELECT * FROM features_2000_2008"
+# if tbl() used, no ; are allowed
+features_2000_2008 = data.frame(tbl(conn, sql(sql_string)))
+head(features_2000_2008, n = 10)
+```
+
+As with the label table, we need to create a second feature table which we will use for model evaluation purposes. We again create a function, this time called `create_features`, to ease the process. This function allows to run all feature generation steps for a given feature end date, prediction start date and prediction end date with just one function call.
+
+```{r, include=FALSE, echo=FALSE, message=FALSE}
+create_labels <- function(features_end, prediction_start, prediction_end, conn) {
+  # @param features_end
+  # @param prediction_start
+  # @param prediction_end
+  # @param conn: obj
+  end_x_year = format(as.Date(features_end, format="%Y-%m-%d"),"%Y")
+  start_y_year = format(as.Date(prediction_start, format="%Y-%m-%d"),"%Y")
+  end_y_year = format(as.Date(prediction_end, format="%Y-%m-%d"),"%Y")
+
+  drop_script_1 = "drop table if exists sentences_prep;"
+  sql_script_1 = glue("create table sentences_prep as
+select inmate_doc_number, 
+cast(inmate_sentence_component as integer) as sentence_component,
+date([sentence_begin_date_(for_max)]) as sentence_begin_date,
+date(actual_sentence_end_date) as sentence_end_date
+from sentences;")
+  
+  drop_script_2 = glue("drop table if exists feature_num_admits_2000_{end_x_year};")
+  sql_script_2 = glue("create table feature_num_admits_2000_{end_x_year} as
+select inmate_doc_number, count(*) num_admits
+from sentences_prep
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{start_y_year}_{end_y_year})
+and sentence_begin_date < '{features_end}' and sentence_component = 1
+group by inmate_doc_number;")
+  
+  drop_script_3 = glue("drop table if exists feature_length_sentence_2000_{end_x_year};")
+  sql_script_3 = glue("create table feature_length_sentence_2000_{end_x_year} as
+select inmate_doc_number, sentence_component, cast(julianday(sentence_end_date) - julianday(sentence_begin_date) as integer) length_sentence
+from sentences_prep
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{start_y_year}_{end_y_year})
+and sentence_begin_date < '{features_end}' and sentence_component = 1
+and sentence_begin_date > '0001-01-01' and sentence_end_date > '0001-01-01' and sentence_end_date > sentence_begin_date;")
+  
+  drop_script_4 = glue("drop table if exists feature_length_long_sentence_2000_{end_x_year};")
+  sql_script_4 = glue("create temp table feature_length_long_sentence_2000_{end_x_year} as
+select inmate_doc_number, max(length_sentence) length_longest_sentence
+from feature_length_sentence_2000_{end_x_year}
+group by inmate_doc_number;")
+  
+  drop_script_5 = "drop table if exists docnbr_admityr;"
+  sql_script_5 = "create temp table docnbr_admityr as
+select inmate_doc_number, min(sentence_begin_date) min_admityr
+from sentences_prep
+where sentence_begin_date > '0001-01-01'
+group by inmate_doc_number;"
+  
+#   drop_script_6 = "drop table if exists age_first_admit_birth_year;"
+#   sql_script_6 = "create temp table age_first_admit_birth_year as
+# select da.inmate_doc_number,
+# cast(strftime("%Y", da.min_admityr) as integer) min_admityr,
+# cast(strftime("%Y", p.inmate_birth_date) as integer) inmate_birth_date
+# from docnbr_admityr da
+# left join inmate p on da.inmate_doc_number = p.inmate_doc_number;"
+  
+  drop_script_7 = "drop table if exists feature_age_first_admit;"
+  sql_script_7 = "create table feature_age_first_admit as
+select inmate_doc_number, (min_admityr - inmate_birth_date) age_first_admit
+from age_first_admit_birth_year;"
+  
+  drop_script_8 = "drop table if exists feature_agefirstadmit;"
+  sql_script_8 = "create table feature_agefirstadmit as
+select inmate_doc_number, age_first_admit
+from feature_age_first_admit
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{start_y_year}_{end_y_year});"
+  
+#   drop_script_9 = glue("drop table if exists feature_age_{end_x_year};")
+#   sql_script_9 = glue("create table feature_age_{end_x_year} as
+# select inmate_doc_number, ({end_x_year} - cast(strftime("%Y", inmate_birth_date) as integer)) age
+# from inmate
+# where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{start_y_year}_{end_y_year});")
+  
+#   drop_script_10 = glue("drop table if exists features_2000_{end_x_year};")
+#   sql_script_10 = glue("create table features_2000_{end_x_year} as
+# select f1.inmate_doc_number, f1.num_admits, f2.length_longest_sentence, f3.age_first_admit, f4.age
+# from feature_num_admits_2000_{end_x_year} f1
+# left join feature_length_long_sentence_2000_{end_x_year} f2 on f1.inmate_doc_number = f2.inmate_doc_number
+# left join feature_agefirstadmit f3 on f1.inmate_doc_number = f3.inmate_doc_number
+# left join feature_age_{end_x_year} f4 on f1.inmate_doc_number = f4.inmate_doc_number;")
+  
+  DBI::dbSendStatement(conn, drop_script_1)
+  DBI::dbSendStatement(conn, sql_script_1)
+  
+  DBI::dbSendStatement(conn, drop_script_2)
+  DBI::dbSendStatement(conn, sql_script_2)
+  
+  DBI::dbSendStatement(conn, drop_script_3)
+  DBI::dbSendStatement(conn, sql_script_3)
+  
+  DBI::dbSendStatement(conn, drop_script_4)
+  DBI::dbSendStatement(conn, sql_script_4)
+  
+  DBI::dbSendStatement(conn, drop_script_5)
+  DBI::dbSendStatement(conn, sql_script_5)
+  
+  DBI::dbSendStatement(conn, drop_script_6)
+  DBI::dbSendStatement(conn, sql_script_6)
+  
+  DBI::dbSendStatement(conn, drop_script_7)
+  DBI::dbSendStatement(conn, sql_script_7)
+  
+  DBI::dbSendStatement(conn, drop_script_8)
+  DBI::dbSendStatement(conn, sql_script_8)
+  
+  DBI::dbSendStatement(conn, drop_script_9)
+  DBI::dbSendStatement(conn, sql_script_9)
+  
+  DBI::dbSendStatement(conn, drop_script_10)
+  DBI::dbSendStatement(conn, sql_script_10)
+  
+  sql_query = glue("select * from features_2000_{end_x_year}")
+  df_features = data.frame(tbl(conn, sql(sql_query)))
+  
+  return(df_features)}
+```
+
