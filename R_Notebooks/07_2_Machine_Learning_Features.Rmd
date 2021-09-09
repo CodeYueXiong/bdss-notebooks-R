@@ -162,25 +162,17 @@ DBI::dbSendStatement(conn, sql_string)
 ```
 
 ```{r}
-# sql_string =paste0("
-# create temp table age_first_admit_birth_year as
-# select da.inmate_doc_number,
-# cast(strftime("%Y", da.min_admityr) as integer) min_admityr,
-# cast(strftime("%Y", p.inmate_birth_date) as integer) inmate_birth_date
-# from docnbr_admityr da
-# left join inmate p on da.inmate_doc_number = p.inmate_doc_number;
-# ")
-# DBI::dbSendQuery(conn, sql_string)
-```
-
-```{sql connection=conn}
+sql_string ='
 create temp table age_first_admit_birth_year as
 select da.inmate_doc_number,
 cast(strftime("%Y", da.min_admityr) as integer) min_admityr,
 cast(strftime("%Y", p.inmate_birth_date) as integer) inmate_birth_date
 from docnbr_admityr da
-left join inmate p on da.inmate_doc_number = p.inmate_doc_number;
+left join inmate p on da.inmate_doc_number = p.inmate_doc_number;'
+
+DBI::dbSendQuery(conn, sql_string)
 ```
+
 The combined table allows us to create `age_first_admit` by subtracting the birth year from the year first admitted into prison.
 
 ```{r}
@@ -219,18 +211,12 @@ sql_string = "drop table if exists feature_age_2008;"
 DBI::dbSendStatement(conn, sql_string)
 ```
 ```{r}
-# sql_string = "
-# create table feature_age_2008 as
-# select inmate_doc_number, (2008 - cast(strftime("%Y", inmate_birth_date) as integer)) age
-# from inmate
-# where inmate_doc_number in (select inmate_doc_number from recidivism_labels_2009_2013);"
-# DBI::dbSendQuery(conn, sql_string)
-```
-```{sql connection=conn}
+sql_string = '
 create table feature_age_2008 as
 select inmate_doc_number, (2008 - cast(strftime("%Y", inmate_birth_date) as integer)) age
 from inmate
-where inmate_doc_number in (select inmate_doc_number from recidivism_labels_2009_2013);
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_2009_2013);'
+DBI::dbSendQuery(conn, sql_string)
 ```
 
 Finally, we join all (final) feature tables by `inmate_doc_number` and create table `features_2000_2008`.
@@ -258,8 +244,8 @@ head(features_2000_2008, n = 10)
 
 As with the label table, we need to create a second feature table which we will use for model evaluation purposes. We again create a function, this time called `create_features`, to ease the process. This function allows to run all feature generation steps for a given feature end date, prediction start date and prediction end date with just one function call.
 
-```{r, include=FALSE, echo=FALSE, message=FALSE}
-create_labels <- function(features_end, prediction_start, prediction_end, conn) {
+```{r, message=FALSE}
+create_features <- function(features_end, prediction_start, prediction_end, conn) {
   # @param features_end
   # @param prediction_start
   # @param prediction_end
@@ -305,13 +291,13 @@ from sentences_prep
 where sentence_begin_date > '0001-01-01'
 group by inmate_doc_number;"
   
-#   drop_script_6 = "drop table if exists age_first_admit_birth_year;"
-#   sql_script_6 = "create temp table age_first_admit_birth_year as
-# select da.inmate_doc_number,
-# cast(strftime("%Y", da.min_admityr) as integer) min_admityr,
-# cast(strftime("%Y", p.inmate_birth_date) as integer) inmate_birth_date
-# from docnbr_admityr da
-# left join inmate p on da.inmate_doc_number = p.inmate_doc_number;"
+  drop_script_6 = "drop table if exists age_first_admit_birth_year;"
+  sql_script_6 = 'create temp table age_first_admit_birth_year as
+select da.inmate_doc_number,
+cast(strftime("%Y", da.min_admityr) as integer) min_admityr,
+cast(strftime("%Y", p.inmate_birth_date) as integer) inmate_birth_date
+from docnbr_admityr da
+left join inmate p on da.inmate_doc_number = p.inmate_doc_number;'
   
   drop_script_7 = "drop table if exists feature_age_first_admit;"
   sql_script_7 = "create table feature_age_first_admit as
@@ -319,24 +305,24 @@ select inmate_doc_number, (min_admityr - inmate_birth_date) age_first_admit
 from age_first_admit_birth_year;"
   
   drop_script_8 = "drop table if exists feature_agefirstadmit;"
-  sql_script_8 = "create table feature_agefirstadmit as
+  sql_script_8 = glue("create table feature_agefirstadmit as
 select inmate_doc_number, age_first_admit
 from feature_age_first_admit
-where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{start_y_year}_{end_y_year});"
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{start_y_year}_{end_y_year});")
   
-#   drop_script_9 = glue("drop table if exists feature_age_{end_x_year};")
-#   sql_script_9 = glue("create table feature_age_{end_x_year} as
-# select inmate_doc_number, ({end_x_year} - cast(strftime("%Y", inmate_birth_date) as integer)) age
-# from inmate
-# where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{start_y_year}_{end_y_year});")
+  drop_script_9 = glue("drop table if exists feature_age_{end_x_year};")
+  sql_script_9 = glue('create table feature_age_{end_x_year} as
+select inmate_doc_number, ({end_x_year} - cast(strftime("%Y", inmate_birth_date) as integer)) age
+from inmate
+where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{start_y_year}_{end_y_year});')
   
-#   drop_script_10 = glue("drop table if exists features_2000_{end_x_year};")
-#   sql_script_10 = glue("create table features_2000_{end_x_year} as
-# select f1.inmate_doc_number, f1.num_admits, f2.length_longest_sentence, f3.age_first_admit, f4.age
-# from feature_num_admits_2000_{end_x_year} f1
-# left join feature_length_long_sentence_2000_{end_x_year} f2 on f1.inmate_doc_number = f2.inmate_doc_number
-# left join feature_agefirstadmit f3 on f1.inmate_doc_number = f3.inmate_doc_number
-# left join feature_age_{end_x_year} f4 on f1.inmate_doc_number = f4.inmate_doc_number;")
+  drop_script_10 = glue("drop table if exists features_2000_{end_x_year};")
+  sql_script_10 = glue('create table features_2000_{end_x_year} as
+select f1.inmate_doc_number, f1.num_admits, f2.length_longest_sentence, f3.age_first_admit, f4.age
+from feature_num_admits_2000_{end_x_year} f1
+left join feature_length_long_sentence_2000_{end_x_year} f2 on f1.inmate_doc_number = f2.inmate_doc_number
+left join feature_agefirstadmit f3 on f1.inmate_doc_number = f3.inmate_doc_number
+left join feature_age_{end_x_year} f4 on f1.inmate_doc_number = f4.inmate_doc_number;')
   
   DBI::dbSendStatement(conn, drop_script_1)
   DBI::dbSendStatement(conn, sql_script_1)
@@ -372,5 +358,17 @@ where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{sta
   df_features = data.frame(tbl(conn, sql(sql_query)))
   
   return(df_features)}
+```
+
+In order to create a feature table that matches the second label table (`recidivism_labels_2014_2018`), we create features that contain information up to the end of 2013.
+
+```{r, warning=FALSE}
+features_2000_2013 = create_features('2013-12-31', '2014-01-01', '2018-12-31', conn)
+head(features_2000_2013, n=5)
+```
+
+```{r}
+# disconnect from the database
+DBI::dbDisconnect(conn)
 ```
 

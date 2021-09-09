@@ -16,7 +16,7 @@ This tutorial is adapted according to chapter "Machine Learning" of [Big Data an
 
 ## Setup
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 library('dbplyr')  # load the corresponding libraries
 library('dplyr')
 library('RSQLite')
@@ -213,7 +213,7 @@ from recidivism_{start_y_year}_{end_y_year};")
 
 The `create_labels` function takes a `features_end` date, a `prediction_start` date and a `prediction_end` date as arguments. Our second label table covers recidivism between 2014 and 2018, based on all releases between 2000 and 2013.
 
-```{r}
+```{r, warning=FALSE}
 label_2014_2018 = create_labels('2013-12-31', '2014-01-01', '2018-12-31', conn)
 ```
 ```{r}
