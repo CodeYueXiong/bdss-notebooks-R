@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Introduction
 
-In this tutorial, we'll discuss how to formulate a policy problem or a social science question in the machine learning framework; how to transform raw data into something that can be fed into a model; how to build, evaluate, compare, and select models; and how to reasonably and accurately interpret model results. You'll also get hands-on experience using the `caret` package in R. 
+In this tutorial, we'll discuss how to formulate a policy problem or a social science question in the machine learning framework; how to transform raw data into something that can be fed into a model; how to build, evaluate, compare, and select models; and how to reasonably and accurately interpret model results. You'll also get hands-on experience using the `mlr3` package in R. 
 
 This tutorial is based on chapter "Machine Learning" of [Big Data and Social Science](https://coleridge-initiative.github.io/big-data-and-social-science/).
 
@@ -62,24 +62,34 @@ create_labels <- function(features_end, prediction_start, prediction_end, conn) 
   
   drop_script_1 = "drop table if exists sentences_prep;"
   sql_script_1 = glue("create table sentences_prep as
-select inmate_doc_number, cast(inmate_sentence_component as integer) as sentence_component, date([sentence_begin_date_(for_max)]) as sentence_begin_date,
+select inmate_doc_number, cast(inmate_sentence_component as integer) 
+as sentence_component, date([sentence_begin_date_(for_max)]) 
+as sentence_begin_date,
 date(actual_sentence_end_date) as sentence_end_date
 from sentences;")
 
   drop_script_2 = glue("drop table if exists release_dates_2000_{end_x_year};")
   sql_script_2 = glue("create temp table release_dates_2000_{end_x_year} as
 select inmate_doc_number, sentence_end_date
-from sentences_prep where sentence_end_date >= '2000-01-01' and sentence_end_date <= '{features_end}';")
+from sentences_prep where sentence_end_date >= '2000-01-01' and 
+sentence_end_date <= '{features_end}';")
   
   drop_script_3 = glue("drop table if exists last_exit_2000_{end_x_year};")
-  sql_script_3 = glue("create temp table last_exit_2000_{end_x_year} as select inmate_doc_number, max(sentence_end_date) sentence_end_date from release_dates_2000_{end_x_year} group by inmate_doc_number;")
+  sql_script_3 = glue("create temp table last_exit_2000_{end_x_year} as 
+select inmate_doc_number, max(sentence_end_date) sentence_end_date 
+from release_dates_2000_{end_x_year} group by inmate_doc_number;")
 
   drop_script_4 = glue("drop table if exists admit_{start_y_year}_{end_y_year};")
-  sql_script_4 = glue("create temp table admit_{start_y_year}_{end_y_year} as select inmate_doc_number, sentence_component, sentence_begin_date from sentences_prep where sentence_begin_date >= '{prediction_start}' and sentence_begin_date <= '{prediction_end}' and sentence_component = 1;")
+  sql_script_4 = glue("create temp table admit_{start_y_year}_{end_y_year} as 
+select inmate_doc_number, sentence_component, sentence_begin_date 
+from sentences_prep where sentence_begin_date >= '{prediction_start}' 
+and sentence_begin_date <= '{prediction_end}' and sentence_component = 1;")
 
   drop_script_5 = glue("drop table if exists recidivism_{start_y_year}_{end_y_year};")
   sql_script_5 = glue("create temp table recidivism_{start_y_year}_{end_y_year} as
-select r.inmate_doc_number, r.sentence_end_date, a.sentence_begin_date, case when a.sentence_begin_date is null then 0 else 1 end recidivism from last_exit_2000_{end_x_year} r
+select r.inmate_doc_number, r.sentence_end_date, a.sentence_begin_date, case 
+when a.sentence_begin_date is null then 0 else 1 end recidivism 
+from last_exit_2000_{end_x_year} r
 left join admit_{start_y_year}_{end_y_year} a on r.inmate_doc_number = a.inmate_doc_number;")
   
   drop_script_6 = glue("drop table if exists recidivism_labels_{start_y_year}_{end_y_year};")
@@ -134,8 +144,7 @@ from sentences;")
   
   drop_script_2 = glue("drop table if exists feature_num_admits_2000_{end_x_year};")
   sql_script_2 = glue("create table feature_num_admits_2000_{end_x_year} as
-select inmate_doc_number, count(*) num_admits
-from sentences_prep
+select inmate_doc_number, count(*) num_admits from sentences_prep
 where inmate_doc_number in (select inmate_doc_number from recidivism_labels_{start_y_year}_{end_y_year})
 and sentence_begin_date < '{features_end}' and sentence_component = 1
 group by inmate_doc_number;")
@@ -241,6 +250,15 @@ create_features('2013-12-31', '2014-01-01', '2018-12-31', conn)
 # Create Training and Test Sets
 ---
 
+The Machine Learning framework we will be using is called "mlr3", which provides an Efficient, object-oriented programming platform on the building blocks of machine learning. In order to start training and evaluation with "mlr3", we are required to follow these procedures listed:
+- Define the __Task__.
+- Define the __Learner__.
+- Implement the training.
+- Implement the prediction.
+- Evaluate the trained model with multiple __Measures__.
+
+However, the "mlr3" machine learning framework utilize a resampling framework with cross-validation, bootstrap, etc, included, which does not necessarily take in the training and test splitting beforehand. As an outcome, we will modify the initial configurations according to the python notebooks and combine the training and test dataset as a whole so as to facilitate the `mlr3` training framework.
+
 ### Our Training Set
 
 We create a training set that takes people at the beginning of 2009 and defines the outcome based on data from 2009-2013 (`recidivism_labels_2009_2013`). The features for each person are based on data up to the end of 2008 (`features_2000_2008`).
@@ -295,110 +313,236 @@ df_test = data.frame(tbl(conn, sql(sql_string)))
 head(df_test, n=5)
 ```
 
+The next step would be to join the training and test dataset vertically.
+```{r}
+total_df <- rbind(df_training, df_test)
+nrow(total_df)
+```
+
 ### Data Cleaning
 
-Before we proceed to model training, we need to clean our training data. First, we check the percentage of missing values.
+Before we proceed to model training, we need to clean our data. First, we check the percentage of missing values.
 
 ```{r}
 # count the number of missing values row wise
-isnan_training_rows = sum(!complete.cases(df_training))
+isnan_totaldf_rows = sum(!complete.cases(total_df))
 
-nrows_training = nrow(df_training)
+nrows_totaldf = nrow(total_df)
 
 # count the missing value percentage
-missing_percent = isnan_training_rows/nrows_training
+missing_percent = isnan_totaldf_rows/nrows_totaldf
 missing = glue("missing rows ratio:{missing_percent}")
 cat(missing)
 ```
-We see that about 1% of the rows in our data have missing values. In the following, we will drop rows with missing values. Note, however, that better ways for dealing with missings exist, e.g., general data imputation methods.
+We see that about 1% of the rows in our data have missing values. In the following, we will drop rows with missing values. Note, however, that better ways for dealing with missing values exist, e.g., general data imputation methods.
 
 ```{r}
-df_training = na.omit(df_training)
-cleaned_training = nrow(df_training) # number of rows after cleaning
+total_df = na.omit(total_df)
+cleaned_df = nrow(total_df) # number of rows after cleaning
 ```
 ```{r}
-c(nrows_training, cleaned_training) # checking whether the missing data are dropped
+c(nrows_totaldf, cleaned_df) # checking whether the missing data are dropped
 ```
 Let's check if the values of the ages at first admit are reasonable.
 
 ```{r}
-length(unique(df_training$age_first_admit))
-length(df_training$age_first_admit)
+length(unique(total_df$age_first_admit))
+length(total_df$age_first_admit)
 ```
 Looks like this needs some cleaning. We will drop any rows that have age < 14 and > 99.
 
 ```{r}
-df_training <- df_training[ which(df_training$age_first_admit >= 14
-& df_training$age_first_admit <= 99), ]
+total_df <- total_df[ which(total_df$age_first_admit >= 14
+& total_df$age_first_admit <= 99), ]
 ```
 Let's check how much data we still have and how many examples of recidivism are in our training dataset. When it comes to model evaluation, it is good to know what the "baseline" is in our dataset.
 
 ```{r}
-row_after_cleaning = glue("Number of rows in training dataset: {nrow(df_training)}")
+row_after_cleaning = glue("Number of rows in the dataset: {nrow(total_df)}")
 cat(row_after_cleaning)
 ```
 ```{r}
-count(df_training, df_training$recidivism, sort=TRUE)
-```
-
-We have about 155,000 examples, and about 25% (37773/155159) of those are positive examples (recidivist), which is what we're trying to identify. About 75% (117386/155159) of the examples are negative examples (non-recidivist).
-
-In the next step, let's take a look at the test set.
-
-```{r}
-# count the number of missing values row wise
-isnan_test_rows = sum(!complete.cases(df_test))
-
-nrows_test = nrow(df_test)
-
-# count the missing value percentage
-missing_percent_test = isnan_test_rows/nrows_test
-missing_test = glue("missing rows in test ratio:{missing_percent_test}")
-cat(missing_test)
-```
-We see that about 1% of the rows in our test set have missing values. This matches what we'd expect based on what we saw in the training set.
-
-
-Similarly, we drop cases with age < 14 and > 99 in the test set.
-
-```{r}
-df_test <- na.omit(df_test)
-df_test <- df_test[ which(df_test$age_first_admit >= 14
-& df_test$age_first_admit <= 99), ]
-```
-We also check the number of observations and the outcome distribution for our test data.
-
-```{r}
-rows_after_cleaning = glue("Number of rows in test dataset: {nrow(df_test)}")
-cat(row_after_cleaning)
+count(total_df, total_df$recidivism, sort=TRUE)
 ```
 ```{r}
-count(df_test, df_test$recidivism, sort=TRUE)
+71578/(301704+71578)
+301704+71578
 ```
+
+We have about 37,0000 examples, and about 20% of those are positive examples (recidivist), which is what we're trying to identify. About 80% of the examples are negative examples (non-recidivist).
+
 
 ### Split into features and labels
 
-Here we select our features and outcome variable.
+Here we select our features and outcome variable in a column vector.
 
 ```{r}
-sel_features = c('num_admits', 'length_longest_sentence', 'age_first_admit', 'age')
-sel_label = 'recidivism'
+sel_cols = c('num_admits', 'length_longest_sentence', 'age_first_admit', 'age', 'recidivism')
 ```
 
-We can now create an X- and y-training and X- and y-test object to train and evaluate prediction models with `caret`.
+We can now create an X- and y- object to train and evaluate prediction models with `mlr3`.
 
 ```{r}
-X_train = df_training[sel_features]
-y_train = df_training[sel_label]
-X_test = df_test[sel_features]
-y_test = df_test[sel_label]
+total_df$recidivism = as.factor(total_df$recidivism)
+total_data = total_df[sel_cols]
+# X_train = df_training[sel_features]
+# y_train = df_training[sel_label]
+# X_test = df_test[sel_features]
+# y_test = df_test[sel_label]
+```
+```{r}
+dim(total_data)
+str(total_data)
+
+```
+Before the actual training, we can firstly load the required packages.
+```{r warning=FALSE}
+library("mlr3")
+library("mlr3learners")
+library("mlr3tuning")
+library("mlr3viz")
+library("ggplot2")
+library("paradox")
+library("e1071")
+# library('kknn')
+library("ranger")
 ```
 
-# Model Training
----
+In the next step, we need to define the task as specified in the `mlr3` package.
 
-On this basis, we can now build a prediction model that learns the relationship between our predictors (`X_train`) and recidivism (`y_train`) in the training data. We start with using logistic regression as our first model.
+```{r}
+task_df = TaskClassif$new("ml_task", total_data, target = "recidivism")
 
+task_df
+```
+
+#### Logistic Regression
+
+Also, in order to use the logistic regression model, we are required to initialize the learner.
+
+```{r}
+learner_logreg = lrn("classif.log_reg")
+print(learner_logreg)
+```
+In order to perform an efficient splitting of data, one could do the following:
+```{r}
+train_set = sample(task_df$row_ids, 0.8 * task_df$nrow)
+test_set = setdiff(task_df$row_ids, train_set)
+```
+Then, we have 80% of the data for training and the remained 20% for evaluation.
+
+We can train the model on the train_set by specifiying the row_ids:
+```{r warning=FALSE}
+learner_logreg$train(task_df, row_ids = train_set)
+```
+The fitted model can be accessed via:
+```{r}
+learner_logreg$model
+```
+```{r}
+summary(learner_logreg$model)
+```
+#### Random Forest
+Besides the logistic regression algorithm, we can also train the data with random forest, which implements a feature importance algorithm automatically by supplying the additional importance argument `importance="permutation"`.
+
+```{r}
+learner_rf = lrn("classif.ranger", importance = "permutation")
+learner_rf$train(task_df, row_ids = train_set)
+```
+The feature importance values can be seen with `$importance()`:
+```{r}
+learner_rf$importance()
+```
+
+We can also plot the importance values as follows:
+```{r}
+importance = as.data.table(learner_rf$importance(), keep.rownames = TRUE)
+colnames(importance) = c("Feature", "Importance")
+ggplot(importance, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_col() + coord_flip() + xlab("")
+```
+### Model Prediction
+
+* Predict Class
+
+We can now take a look at the prediction results based on the pre-trained models.
+```{r}
+pred_logreg = learner_logreg$predict(task_df, row_ids = test_set)
+pred_rf = learner_rf$predict(task_df, row_ids = test_set)
+```
+
+```{r}
+head(as.data.table(pred_logreg), n=5)  # checking the prediction object
+```
+
+```{r}
+head(as.data.table(pred_rf), n=5)
+```
+* Predict Probabilities
+Most learners may not only predict a class variable (“response”), but also their degree of “belief” / “uncertainty” in a given response. Typically, we achieve this by setting the `$predict_type="prob"` in the learner setting arguments.
+```{r}
+learner_logreg$predict_type = "prob"
+```
+```{r}
+learner_logreg$predict(task_df, row_ids = test_set)
+```
+
+
+### Performance Evaluation
+
+In order to measure the performance of a learner on test data, we ususally simulate the scenario of these data by splitting them into training and test dataset. In this case, numerous resampling methods can be utilized to repeat the splitting process.
+
+For "mlr3", we can specify the resampling method with the `rsmp()` function:
+
+```{r}
+resampling = rsmp("holdout", ratio=2/3)
+print(resampling)
+```
+"holdout" is a simple train-test splitting method. The next step is to use the `resample()` function to implement the resampling calculation.
+
+```{r}
+res = resample(task_df, learner = learner_logreg, resampling = resampling)
+res
+```
+The performance score can evaluated using `$aggregate()`:
+```{r}
+res$aggregate(msrs(c("classif.ce", "classif.auc")))
+```
+We can also run cross-validation:
+```{r}
+resampling = rsmp("cv", folds = 5)
+rr = resample(task_df, learner = learner_logreg, resampling = resampling)
+rr$aggregate(msrs(c("classif.ce", "classif.auc")))
+```
+### Performance Comparison and Benchmarks
+The `benchmark()` function can integrate multiple tasks and learners together. Here, we only show the instance with multiple learners:
+```{r}
+learners = lrns(c("classif.log_reg", "classif.ranger"), predict_type = "prob")
+bm_design = benchmark_grid(
+  tasks = task_df,
+  learners = learners,
+  resamplings = rsmp("cv", folds = 3)
+)
+bmr = benchmark(bm_design)
+```
+With this benchmark, we can compare different evaluation methods. Here, we focus on the `misclassfication rate` and `AUC`.
+
+```{r}
+measures = msrs(c("classif.ce", "classif.auc"))
+performances = bmr$aggregate(measures)
+performances[, c("learner_id", "classif.ce", "classif.auc")]
+```
+
+We can also utilize the `autoplot()` function implemented in the `mlr3viz` package to compare the learners' performances.
+
+```{r}
+autoplot(bmr)
+```
+Also, we can get the ROC-curve with the following command:
+```{r}
+library('precrec')
+autoplot(bmr$clone(deep = TRUE)$filter(task_ids = "ml_task"), type = "roc")
+```
 
 ```{r}
 DBI::dbDisconnect(conn)
